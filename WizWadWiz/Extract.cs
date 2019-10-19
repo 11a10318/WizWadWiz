@@ -26,18 +26,5 @@ namespace WizWadWiz
             }
         }
 
-        //Method for extracting multiple specified files
-        public static void ExtractMulti(FileList[] entries,string file, string output)
-        {
-            //FileList[] entries: file list
-            //string output: Output directory
-        }
-
-        public static void ExtractOne(FileList[] entries, string file, string output)
-        {
-            //FileList[] entries: file list
-            //string output: Output directory
-        }
-
     }
 }

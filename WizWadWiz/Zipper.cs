@@ -1,16 +1,21 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
+//using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
-using System.IO;
-using ICSharpCode.SharpZipLib.Zip;
-using ICSharpCode.SharpZipLib.Core;
+//using System.Threading.Tasks;
+//using System.IO;
+//using ICSharpCode.SharpZipLib.Zip;
+//using ICSharpCode.SharpZipLib.Core;
 
 namespace WizWadWiz
 {
     partial class Program
     {
+        /// <summary>
+        /// Creates a zip from the entries in the supplied FileList array
+        /// </summary>
+        /// <param name="entries"></param>
+        /// <returns></returns>
         public static byte[] Zipper(FileList[] entries)
         {
             //Convert current time to DOS time (gross)
@@ -25,15 +30,7 @@ namespace WizWadWiz
             Time |= (uint)DateTime.Now.Month << 21;
             Time |= (uint)(DateTime.Now.Year - 1980) << 25;
             byte[] timebytes = BitConverter.GetBytes(Time);
-            Console.WriteLine("Dostime: {0}", Time.ToString("X2"));
-            //Array.Reverse(timebytes);   //Have to reverse the bytes because the zip is in LE
 
-            //Environment.Exit(0);
-            //byte[] output = new byte[0];
-            //Things to keep track of:
-            //Offsets of each entry
-            //Total entries (entries.Length)
-            //Total length of written data (for offset of central-directory)
             List<byte> EntireZip = new List<byte>();    //Byte list to store the entire zip in memory (list for dynamic-ness)
             List<byte> ZipFooter = new List<byte>();    //Byte list to store the zip's footer
             for (int i = 0; i < entries.Length; i++)
