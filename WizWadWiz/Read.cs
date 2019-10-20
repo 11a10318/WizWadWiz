@@ -10,7 +10,7 @@ namespace WizWadWiz
     partial class Program
     {
         /// <summary>
-        /// Reads .wad entries and stores them in a FileList array (also stores compressed data)
+        /// Reads .wad entries and stores them in a FileList array (including compressed data)
         /// </summary>
         /// <param name="wad"></param>
         /// <returns></returns>

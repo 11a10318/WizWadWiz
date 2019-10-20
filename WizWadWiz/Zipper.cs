@@ -16,7 +16,7 @@ namespace WizWadWiz
         /// </summary>
         /// <param name="entries"></param>
         /// <returns></returns>
-        public static byte[] Zipper(FileList[] entries)
+        public static byte[] OldZipper(FileList[] entries)
         {
             //Convert current time to DOS time (gross)
             //Dos time is the current time+date, compressed into just 4 bytes.
@@ -69,6 +69,101 @@ namespace WizWadWiz
             int FooterOffset = EntireZip.Count;   //Remember where the first byte of the footer is located in the zip
 
             EntireZip.AddRange(ZipFooter);  //Add the footer to the zip data
+            //Now we need to add the zip64 footer, because some wads have a *lot* of files (eg; root.wad has over 73,000 files), and the max file-count for zip is 65535 (ffff)
+
+            //Zip64 End of central directory
+            EntireZip.AddRange(new byte[] { 0x50, 0x4B, 0x06, 0x06, 0x2C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2D, 0x00, 0x2D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 });  //PKZIOP 64 footer_header_marker, size of this field (excluding size and magic), version of zip (creator and viewer), disk number (0), disk number that contains directory (0)
+            EntireZip.AddRange(BitConverter.GetBytes((long)entries.Length)); //Number of entries (including number of directories D:)
+            EntireZip.AddRange(BitConverter.GetBytes((long)entries.Length));
+            EntireZip.AddRange(BitConverter.GetBytes((long)ZipFooter.Count));
+            EntireZip.AddRange(BitConverter.GetBytes((long)FooterOffset));
+
+            //ZIP64 End of central directory locator
+            EntireZip.AddRange(new byte[] { 0x50, 0x4B, 0x06, 0x07, 0x00, 0x00, 0x00, 0x00 });  //magic, disk with this stuff on it
+            EntireZip.AddRange(BitConverter.GetBytes((long)(FooterOffset + ZipFooter.Count)));  //Offset of this is after the footer?
+            EntireZip.AddRange(new byte[] { 0x00, 0x00, 0x00, 0x00 });  //Number of disks (0)
+
+            //End of central directory
+            EntireZip.AddRange(new byte[] { 0x50, 0x4B, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00 });  //Footer_footer, number of disks, disk the footer is located on (all 0 because we ain't splittin nothin')
+            if (entries.Length >= 65535)    //If the max files is beyond the max file-count storable in the zip footer (65535 is ffff), set the filecount to ffff (even windows does this, so the filecount is probable just a legacy field)
+                EntireZip.AddRange(new byte[] { 0xff, 0xff, 0xff, 0xff });
+            else
+            {
+                EntireZip.AddRange(BitConverter.GetBytes((ushort)entries.Length));  //Add number of files in this disk of archive (we only have one 'disk', so just do the total filecount)
+                EntireZip.AddRange(BitConverter.GetBytes((ushort)entries.Length));  //Add number of files in entire archive
+            }
+            EntireZip.AddRange(BitConverter.GetBytes(ZipFooter.Count));
+            EntireZip.AddRange(BitConverter.GetBytes(FooterOffset));
+            EntireZip.AddRange(new byte[] { 0x00, 0x00 });
+
+            return EntireZip.ToArray();
+        }
+
+        public static byte[] Zipper(FileList[] entries)
+        {
+            //Convert current time to DOS time (gross)
+            //Dos time is the current time+date, compressed into just 4 bytes.
+            //Due to the extreme compression, the time is only accurate to two seconds.
+            //It also can't calculate dates before 1980, or after 2107, so expect it to break if you're a time-traveller (If you're using this tool after 2107, there's something wrong with *you*, not the tool)
+            uint Time = 0;
+            Time |= (uint)(DateTime.Now.Second / 2) << 0;
+            Time |= (uint)DateTime.Now.Minute << 5;
+            Time |= (uint)DateTime.Now.Hour << 11;
+            Time |= (uint)DateTime.Now.Day << 16;
+            Time |= (uint)DateTime.Now.Month << 21;
+            Time |= (uint)(DateTime.Now.Year - 1980) << 25;
+            byte[] timebytes = BitConverter.GetBytes(Time);
+
+            List<byte> EntireZip = new List<byte>();    //Byte list to store the entire zip in memory (list for dynamic-ness)
+            List<byte> ZipFooter = new List<byte>();    //Byte list to store the zip's footer
+            for (int i = 0; i < entries.Length; i++)
+            {
+                int offset = EntireZip.Count;  //Save the current entry offset (for use in the headers)
+
+                //Local_file stuff
+                EntireZip.AddRange(new byte[] { 0x50, 0x4B, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00 });  //Add PK header (v20 minver, no flags)
+                if (entries[i].IsCompressed)
+                    EntireZip.AddRange(new byte[] { 0x08, 0x00 });  //Mark file as a deflate stream (that's how they're compressed)
+                else    //If the file isn't compressed
+                    EntireZip.AddRange(new byte[] { 0x00, 0x00 });  //Mark the file as non-compressed
+                EntireZip.AddRange(timebytes);  //Add the time bytes (modified time of when the script started, because I cbf'd reading the actual time from the file attributes, plus processing time would increase)
+                EntireZip.AddRange(BitConverter.GetBytes(entries[i].CRC));
+                if (entries[i].IsCompressed)    //If the file is compressed
+                    EntireZip.AddRange(BitConverter.GetBytes(entries[i].CompressedSize - 6));
+                else
+                    EntireZip.AddRange(BitConverter.GetBytes(entries[i].Size));
+                EntireZip.AddRange(BitConverter.GetBytes(entries[i].Size));
+                EntireZip.AddRange(BitConverter.GetBytes((short)entries[i].Filename.Length));
+                EntireZip.AddRange(new byte[] { 0x00, 0x00 });  //Add two null bytes for extra data length (we don't have any extra data)
+                EntireZip.AddRange(ASCIIEncoding.ASCII.GetBytes(entries[i].Filename));
+                EntireZip.AddRange(entries[i].Data);    //Copy the file to the zip stream
+
+                //I called it a footer, but it's officially called the 'Central File Directory' Sorry for any confusion
+                ZipFooter.AddRange(new byte[] { 0x50, 0x4B, 0x01, 0x02, 0x14, 0x00, 0x14, 0x00, 0x00, 0x00 });  //Add Central File Directory Header magic, Viewer/Creator v20, flags 00 00
+                if (entries[i].IsCompressed)
+                    ZipFooter.AddRange(new byte[] { 0x08, 0x00 });  //Mark file as a deflate stream (that's how they're compressed in wads)
+                else    //If the file isn't compressed
+                    ZipFooter.AddRange(new byte[] { 0x00, 0x00 });  //Mark the file as non-compressed
+                ZipFooter.AddRange(timebytes);  //Add the modified date/time
+                ZipFooter.AddRange(BitConverter.GetBytes(entries[i].CRC));  //Add the CRC
+
+                if (entries[i].IsCompressed)    //If the file is compressed
+                    ZipFooter.AddRange(BitConverter.GetBytes(entries[i].CompressedSize - 6));   //Add the size of the data (-6 because the data includes a 2-byte zlib header and an adler32 hash (another 4 bytes))
+                else    //If the file isn't compressed
+                    ZipFooter.AddRange(BitConverter.GetBytes(entries[i].Size)); //Add the size of the uncompressed file (CompressedSize will be 0, which will cause errors)
+
+                ZipFooter.AddRange(BitConverter.GetBytes(entries[i].Size)); //Add the extracted size
+                ZipFooter.AddRange(BitConverter.GetBytes((short)entries[i].Filename.Length));
+                ZipFooter.AddRange(new byte[] { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00 });  //Extra field length, comment length, disk #, internal attribs (00 00 for binary), external attribs (02 00 00 00 seems ok?)
+                ZipFooter.AddRange(BitConverter.GetBytes(offset));  //Add the offset for the file
+                ZipFooter.AddRange(ASCIIEncoding.ASCII.GetBytes(entries[i].Filename));  //Add the filename
+            }
+
+            int FooterOffset = EntireZip.Count;   //Remember where the first byte of the footer is located in the zip
+
+            EntireZip.AddRange(ZipFooter);  //Add the footer to the zip data
+
+
             //Now we need to add the zip64 footer, because some wads have a *lot* of files (eg; root.wad has over 73,000 files), and the max file-count for zip is 65535 (ffff)
 
             //Zip64 End of central directory

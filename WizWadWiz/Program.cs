@@ -41,6 +41,14 @@
 //          This takes more time, and would still be vulnerable to crc-collisions
 //          To remedy this, I could use a stronger hash function, which could hurt performance even more (although, most suitable hash functions should be fast enough on a modern machine)
 //
+//  ExclusionDirectories:
+//      If the extraction directory starts with '..', it means the user is extracting up a directory
+//      This means that WWW will still see the directory, but when creating the exclusion, it will add '..' to the directory name.
+//      The result of this, is that the exclusion is not applied, and windows defender will consume large amounts of CPU again
+//      It could probably be fixed by performing checks to see if the directory contains '..', and if so, add the full path instead of the relative path (eg; including C:\)
+//          When the path includes a ':', it will use the full path instead of using a relative path
+//          Then when '..' is encountered, remove the parent directory entry (eg; replace C:\dir1\dir2\dir3\..\dir4, with C:\dir1\dir2\dir4)
+//
 //I don't really know how to verify the checksums included in .wad files
 //It's not too important, because my program is pretty safe with extraction, so there shouldn't be any data corruption.
 //I'd like to get checksums figured out at some point though, just for that extra bit of safety
@@ -51,10 +59,12 @@
 //The other alternative would be to calculate the CRC of the compressed data, which would be slightly slower, but still much faster than diff-checking files on disk
 //
 using System;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.IO;
 using System.Diagnostics;
+using System.Security.Principal;
 
 namespace WizWadWiz
 {
@@ -72,10 +82,11 @@ namespace WizWadWiz
             public byte[] Data;
         }
 
+        public static string ExclusionDir = ""; //Directory to create/remove the windows defender exclusion
+
+        [STAThread]
         static void Main(string[] args)
         {
-            CreateExclusion(Directory.GetCurrentDirectory());   //Create a windows defender exclusion for this program's directory (Commented-out in 'slow/safe' version)
-            //Zipper(new FileList[1]);
             //args = new string[2];
             //args[0] = "Root.wad";
             //args[1] = "-w2z";
@@ -86,38 +97,77 @@ namespace WizWadWiz
             string arg1 = "";   //Argument 1 for mode
             string arg2 = "";   //Argument 2 for mode
 
+            bool HadArgs = false; //Whether the user supplied arguments, or just a filename
+
             //Try grabbing wad name and mode
+
             try
             {
                 wad = args[0];
-                mode = args[1];
             }
             catch   //If the wad/mode couldn't be grabbed
             {
-                Console.WriteLine("Please specify wad and mode!\n");    //Print error message
+                Console.WriteLine("Please specify wad!");    //Print error message
                 PrintHelp();    //Print usage info
             }
-            
-            //Try grabbing arguments for specified mode
+
             try
             {
-                if (mode == "-x" || mode == "-a")   //If extract/add mode, grab two arguments
+                mode = args[1];
+                HadArgs = true;
+            }
+            catch   //If the wad/mode couldn't be grabbed
+            {
+                Console.WriteLine("No mode selected. Defaulting to extract all.");    //Print error message
+                mode = "-x";
+                //PrintHelp();    //Print usage info
+            }
+
+            //If the user specified a mode, try grabbing arguments for specified mode
+            if (HadArgs)
+            {
+                try
                 {
-                    arg1 = args[2];
-                    arg2 = args[3];
+                    if (mode == "-x" || mode == "-a")   //If extract/add mode, grab two arguments
+                    {
+                        arg1 = args[2];
+                        arg2 = args[3];
+                    }
+                    else if (mode == "-r" || mode == "-c" || mode == "-d")  //Remove/Create/Diff mode, one arg
+                        arg1 = args[2];
+                    else if (mode != "-i" && mode != "-w2z")    //If the mode is not -i (takes no arguments), then we don't know what mode they specified
+                    {
+                        Console.WriteLine("Invalid mode!"); //Print error
+                        PrintHelp();    //Print usage info
+                    }
                 }
-                else if (mode == "-r" || mode == "-c" || mode == "-d")  //Remove/Create/Diff mode, one arg
-                    arg1 = args[2];
-                else if (mode != "-i" && mode != "-w2z")    //If the mode is not -i (takes no arguments), then we don't know what mode they specified
+                catch   //If the arguments were missing, or something else went wrong
                 {
-                    Console.WriteLine("Invalid mode!"); //Print error
+                    Console.WriteLine("Invalid arguments for specified mode!"); //Print an error
                     PrintHelp();    //Print usage info
                 }
             }
-            catch   //If the arguments were missing, or something else went wrong
+            else
             {
-                Console.WriteLine("Invalid arguments for specified mode!"); //Print an error
-                PrintHelp();    //Print usage info
+                
+                if (!System.IO.File.Exists(wad))
+                {
+                    Console.WriteLine("Wad file not found!");
+                    PrintHelp();
+                }
+
+                arg1 = "*"; //Set extraction file-selection to all
+                System.Windows.Forms.FolderBrowserDialog fd = new System.Windows.Forms.FolderBrowserDialog();
+                fd.Description = "Choose where to save the extracted files";
+                MainTimer.Stop();
+                if (fd.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                {
+                    MainTimer.Start();
+                    arg2 = fd.SelectedPath;
+                    ExclusionDir = arg2;
+                }
+                else
+                    Quit();
             }
 
             FileList[] entries = new FileList[0];   //Pre-init the 'entries' array
@@ -142,13 +192,6 @@ namespace WizWadWiz
                 PrintHelp();
             }
 
-            
-            if (mode == "-x")
-            {
-                if (!Directory.Exists(arg2))    //If the output directory doesn't exist
-                    Directory.CreateDirectory(arg2);    //Create the output directory
-            }
-
             if(mode == "-w2z")
             {
                 //Stopwatch for diagnostics
@@ -163,9 +206,13 @@ namespace WizWadWiz
                     byte[] filemem = new byte[0];
 
                     if (entries[i].IsCompressed)   //If the file is marked as compressed
+                    {
                         filemem = Ionic.Zlib.ZlibStream.UncompressBuffer(entries[i].Data);
+                        Array.Copy(entries[i].Data, 2, entries[i].Data, 0, entries[i].Data.Length - 6);
+                    }
                     else    //If the file isn't compressed
                         filemem = entries[i].Data;
+
 
                     Ionic.Crc.CRC32 crc = new Ionic.Crc.CRC32();
                     entries[i].CRC = (uint)crc.GetCrc32(new MemoryStream(filemem)); //Replace the entries' crc with the CRC of the compressed data (KI are shit and use their own incompatible polynomials for their checksum, so we need to recalculate it with a standard polynomial)
@@ -214,10 +261,8 @@ namespace WizWadWiz
                         arg2 = args[3]; //Grab fourth argument (starting from 0)
                         try
                         {
-                            Console.WriteLine("Output folder specified: {0}", arg2);    //Just some verbosity
-                            if (!Directory.Exists(arg2))    //If the specified output directory doesn't exist
-                                Directory.CreateDirectory(arg2);    //Create the specified output directory
-                            Console.WriteLine("Created Directory: {0}", arg2);  //Inform the user of the directory creation
+                            arg2 = ResolveDir(arg2);
+
                             extract = true; //Enable file-extraction
                         }
                         catch   //If something went wrong whlie creating the directory
@@ -239,7 +284,7 @@ namespace WizWadWiz
                     StringBuilder MissingIn1 = new StringBuilder();
                     StringBuilder MissingIn2 = new StringBuilder();
                     StringBuilder DiffIn2 = new StringBuilder();
-                    object threadsync = new object();
+                    object threadsync = new object();   //Threadsync is used to prevent threads from overwriting eachothers data
 
                     //Check what files are missing
                     Parallel.For(0, entries.Length, i =>    //For each file entry in the first wad
@@ -256,7 +301,7 @@ namespace WizWadWiz
                                 {
                                     lock (threadsync) //Use a lock to prevent SB from getting corrupt by multiple-accesses
                                     {
-                                        DiffIn2.AppendLine(entries[i].Filename);    //Add the filename to the 'DiffIn2' string, so we can print the results later
+                                        DiffIn2.AppendLine(entries[i].Filename);    //Add the filename to the 'DiffIn2' sb, so we can print the results later
                                     }
                                     ExtractIt[j] = true;    //Mark the file in wad2 for extraction, because it's different
 
@@ -269,7 +314,7 @@ namespace WizWadWiz
                         {
                             lock (threadsync) //Use a lock to prevent SB from getting corrupt by multiple-accesses
                             {
-                                MissingIn2.AppendLine(entries[i].Filename); //Add the file to the 'MissingIn2' string for printing later
+                                MissingIn2.AppendLine(entries[i].Filename); //Add the file to the 'MissingIn2' sb for printing later
                             }
                         }
                     });
@@ -291,7 +336,7 @@ namespace WizWadWiz
                         {
                             lock(threadsync)  //Use a lock to prevent SB from getting corrupt by multiple-accesses
                             {
-                                MissingIn1.AppendLine(entries[i].Filename); //Add the file to the 'MissingIn1' string for printing later
+                                MissingIn1.AppendLine(entries[i].Filename); //Add the file to the 'MissingIn1' sb for printing later
                             }
                             ExtractIt[i] = true;    //Mark the file in wad2 for extraction, because it doesn't exist in wad1
                         }
@@ -356,7 +401,8 @@ namespace WizWadWiz
                 }
                 else if (mode == "-x")   //If using extract mode
                 {
-                    if(arg1 != "*")   //If the user specified a file to extract (not all files)
+                    arg2 = ResolveDir(arg2);
+                    if (arg1 != "*")   //If the user specified a file to extract (not all files)
                     {
                         for(int i = 0; i < entries.Length; i++)  //For each file in the filelist
                         {
@@ -364,19 +410,14 @@ namespace WizWadWiz
                             {
                                 Console.WriteLine("File found!");
 
-                                //Check if file is located in a subdirectory. If so, create the appropriate directory structure
-                                PreCreate(entries[i], arg2);
-
-                                byte[] filemem = new byte[0];
+                                PreCreate(entries[i], arg2);    //Check if file is located in a subdirectory. If so, create the appropriate directory structure
 
                                 if (entries[i].IsCompressed)   //If the file is marked as compressed
-                                    filemem = Ionic.Zlib.ZlibStream.UncompressBuffer(entries[i].Data);
-                                else    //If the file isn't compressed
-                                    filemem = entries[i].Data;    //Create a memorystream for the file (size is the uncompressed filesize)
+                                    entries[i].Data = Ionic.Zlib.ZlibStream.UncompressBuffer(entries[i].Data);  //Decompress the data
                                     
                                 using (FileStream output = new FileStream(arg2 + "\\" + entries[i].Filename, FileMode.Create))    //Create the file that is being extracted (replaces old files if they exist)
                                 {
-                                    output.Write(filemem, 0, filemem.Length);   //Write the file from memory to disk
+                                    output.Write(entries[i].Data, 0, entries[i].Data.Length);   //Write the file from memory to disk
                                     Console.WriteLine("File extracted to: {0}", arg2 + "\\" + entries[i].Filename.Replace('/','\\'));
                                 }
 
@@ -435,6 +476,7 @@ namespace WizWadWiz
             //Console.ReadLine();
         }
 
+        //Hmmm... I wonder what this does
         static void PrintHelp()
         {
             Console.WriteLine("Usage:");
@@ -454,31 +496,108 @@ namespace WizWadWiz
             Quit();
         }
 
-        static void CreateExclusion(string dir)
+        //Creates a windows defender directory exclusion on the output folder (significantly boosts extraction speeds)
+        static void CreateExclusion()
         {
             Process proc = new Process();
             proc.StartInfo.FileName = "powershell.exe";
             proc.StartInfo.UseShellExecute = false;
             proc.StartInfo.CreateNoWindow = true;
-            proc.StartInfo.Arguments = "-inputformat none -outputformat none -NonInteractive -Command Add-MpPreference -ExclusionPath \"" + dir + "\"";
+            proc.StartInfo.Arguments = "-inputformat none -outputformat none -NonInteractive -Command Add-MpPreference -ExclusionPath \"" + ExclusionDir + "\"";
             proc.Start();
         }
 
-        static void RemoveExclusion(string dir)
+        //Removes the windows defender directory exclusion on the output folder (we don't want to make any permanent changes to the user's system)
+        static void RemoveExclusion()
         {
             Process proc = new Process();
             proc.StartInfo.FileName = "powershell.exe";
             proc.StartInfo.UseShellExecute = false;
             proc.StartInfo.CreateNoWindow = true;
-            proc.StartInfo.Arguments = "-inputformat none -outputformat none -NonInteractive -Command Remove-MpPreference -ExclusionPath \"" + dir + "\"";
+            proc.StartInfo.Arguments = "-inputformat none -outputformat none -NonInteractive -Command Remove-MpPreference -ExclusionPath \"" + ExclusionDir + "\"";
             proc.Start();
         }
 
-        //Used in replacement of return (on main program); or Environment.Exit. Ensures that the defender exclusion is removed before quitting (We definitely don't want to leave that open)
+
+        //Used in replacement of Environment.Exit, ensures that the defender exclusion is removed before quitting
         static void Quit()
         {
-            RemoveExclusion(Directory.GetCurrentDirectory());   //Remove windows defender exclusion (commented-out in 'slow/safe' version)
+            if (IsElevated())   //If the program is elevated (meaning the directory exclusion would have been installed)
+                RemoveExclusion();   //Remove windows defender exclusion
             Environment.Exit(0);
+        }
+
+        // Check if the program is running with administrator privileges
+        public static bool IsElevated()
+        {
+            return WindowsIdentity.GetCurrent().Owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid);   //Dirty one-liner that checks if the program is using the permissions of the administrator account
+            //This grabs the current security token, and compares it with the BuiltInAdministrator security token. If they match, the process has admin privs.
+            //There might be some edge-cases where this will fail to evaluate correctly. I guess we'll see
+        }
+
+        //Method for pre-creating directories for extraction
+        public static void PreCreate(FileList entry, string BaseDir)  //entry: File to create dir for   //BaseDir: Base directory to create subdirs in
+        {
+            if (entry.Filename.Contains('\\') || entry.Filename.Contains('/'))  //If the filename contains a directory
+            {
+                int slashindex = entry.Filename.LastIndexOf('\\'); //Grab the last \ in the filename (grab the last subdirectory directory)
+                if (slashindex < 0) //If there wasn't a \ in the filename
+                    slashindex = entry.Filename.LastIndexOf('/');   //Grab the last / instead
+
+                if (!Directory.Exists(BaseDir + "\\" + entry.Filename.Substring(0, slashindex)))  //If the directory\subdirectory doesn't exist
+                {
+                    Directory.CreateDirectory(BaseDir + "\\" + entry.Filename.Substring(0, slashindex));    //Create the directory\subdirectory
+                }
+            }
+        }
+
+        public static string ResolveDir(string arg2)
+        {
+            if (!arg2.Contains(':'))    //If the supplied directory does not contain a ':'
+                arg2 = Directory.GetCurrentDirectory() + "\\" + arg2;   //Assume that the folder is based in the working directory
+
+            arg2 = Path.GetFullPath(arg2);
+
+            if (!Directory.Exists(arg2))    //If the output directory doesn't exist
+                Directory.CreateDirectory(arg2);    //Create the output directory
+
+            ExclusionDir = arg2;    //Set the directory used for the WindowsDefender exlusion to the extraction directory
+
+            if (IsElevated())    //If the user is running this process with admin privs
+                CreateExclusion();   //Create a windows defender exclusion for the extraction directory
+
+            return arg2;
+
+            
+
+           /*
+           if (!Directory.Exists(arg2))    //If the output directory doesn't exist
+               Directory.CreateDirectory(arg2);    //Create the output directory
+
+           Console.WriteLine("Directory to parse:\n{0}", arg2);
+
+           while(arg2.Contains(".."))
+           {
+               int up = arg2.IndexOf("..");
+               int updir = -1;
+               try
+               {
+                   updir = arg2.Substring(0,up).LastIndexOf('\\');
+               }
+               catch
+               {
+                   updir = arg2.Substring(0, up).LastIndexOf('/');
+               }
+               arg2 = arg2.Substring(0, updir) + arg2.Substring(updir+3,arg2.Length - updir);
+               Console.WriteLine("Current Parse:{0}", arg2);
+           }
+
+           ExclusionDir = arg2;    //Set the directory used for the WindowsDefender exlusion to the extraction directory
+
+           if (IsElevated())    //If the user is running this process with admin privs
+               CreateExclusion();   //Create a windows defender exclusion for the extraction directory
+               
+            return arg2;*/
         }
 
     }
