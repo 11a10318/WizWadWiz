@@ -4,7 +4,7 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <requestedExecutionLevel level="highestAvailable" uiAccess="false" /> <!-- 'highestAvailable' for admin version, 'asInvoker' for safe version -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" /> <!-- 'highestAvailable' for admin version, 'asInvoker' for safe version -->
       </requestedPrivileges>
     </security>
   </trustInfo>

@@ -65,6 +65,7 @@ using System.Threading.Tasks;
 using System.IO;
 using System.Diagnostics;
 using System.Security.Principal;
+using System.Collections.Generic;
 
 namespace WizWadWiz
 {
@@ -87,9 +88,10 @@ namespace WizWadWiz
         [STAThread]
         static void Main(string[] args)
         {
-            //args = new string[2];
+            //args = new string[3];
             //args[0] = "Root.wad";
-            //args[1] = "-w2z";
+            //args[1] = "-c";
+            //args[2] = "plop";
             System.Diagnostics.Stopwatch MainTimer = new System.Diagnostics.Stopwatch();
             MainTimer.Start();
             string wad = "";    //wad filename
@@ -171,6 +173,89 @@ namespace WizWadWiz
             }
 
             FileList[] entries = new FileList[0];   //Pre-init the 'entries' array
+
+            if(mode == "-c")
+            {
+                if (!Directory.Exists(arg1))
+                {
+                    Console.WriteLine("Input directory not found!");
+                    PrintHelp();
+                }
+                string[] InFiles = Directory.GetFiles(arg1, "*.*", SearchOption.AllDirectories);
+                entries = new FileList[InFiles.Count()];
+                Console.WriteLine("Filecount: {0}", InFiles.Count());
+
+                for(int i = 0; i < InFiles.Count(); i++)
+                {
+                    entries[i].Filename = InFiles[i].Substring(arg1.Length, InFiles[i].Length - arg1.Length);
+                    if(entries[i].Filename.IndexOf("\\") == 0)
+                        entries[i].Filename = entries[i].Filename.Substring(1, entries[i].Filename.Length - 1);
+
+                    FileStream fs = File.OpenRead(InFiles[i]);
+                    MemoryStream ms = new MemoryStream((int)fs.Length);
+                    fs.CopyTo(ms);
+                    entries[i].Size = (uint)fs.Length;
+                    entries[i].Data = ms.ToArray();
+                    Console.WriteLine("{0}, with a size of {1}, was read to memory", entries[i].Filename, entries[i].Size);
+                }
+
+                List<byte> WadHeader = new List<byte>();
+                List<byte> WadBody = new List<byte>();
+
+                var crcparam = new CrcSharp.CrcParameters(32, 0x04c11db7, 0, 0, true, true);
+                var crc = new CrcSharp.Crc(crcparam);
+
+                for (int i = 0; i < entries.Length; i++)
+                {
+                    entries[i].Offset = (uint)WadBody.Count();  //Save the offset for this entry
+
+                    MemoryStream Compressed = new MemoryStream();
+                    Ionic.Zlib.ZlibStream zls = new Ionic.Zlib.ZlibStream(Compressed, Ionic.Zlib.CompressionMode.Compress, Ionic.Zlib.CompressionLevel.BestCompression, false);
+                    zls.Write(entries[i].Data, 0, entries[i].Data.Length);
+                    zls.Close();
+                    byte[] compdata = Compressed.ToArray();
+                    WadBody.AddRange(compdata);   //Add the compressed data to the body of the wad
+                    entries[i].CRC = (uint)crc.CalculateAsNumeric(entries[i].Data); //Add the CRC of the compressed data (idk why they do this)
+                    entries[i].CompressedSize = (uint)compdata.Length;    //Save the size of the compressed data
+                    Console.WriteLine("CRC: {0} : {1}", entries[i].CRC.ToString("X8"), entries[i].Filename);    //Debug
+                }
+                
+                //Add wad header info
+                WadHeader.AddRange(new byte[] { 0x4B, 0x49, 0x57, 0x41, 0x44, 0x02, 0x00, 0x00, 0x00}); //Add magic and wad version (2)
+                WadHeader.AddRange(BitConverter.GetBytes(entries.Length));  //Add the file count
+                WadHeader.Add(0x01);    //Add wad2 byte (idk what it is, but it's required)
+
+                int[] offoff = new int[entries.Length];   //Keeps track of the offset for the 'Offset' field in the header (we can't know the offset until the header is finished, so we add it later)
+
+                //Add each file to the wad header
+                for (int i = 0; i < entries.Length; i++)
+                {
+                    offoff[i] = WadHeader.Count();  //Save current offset, so that we can update the 'offset' field when the header is finished
+                    WadHeader.AddRange(new byte[] { 0x00, 0x00, 0x00, 0x00 });  //Add filler offset
+                    WadHeader.AddRange(BitConverter.GetBytes(entries[i].Size)); //Add uncompresses file size
+                    WadHeader.AddRange(BitConverter.GetBytes(entries[i].CompressedSize));   //Add compressed file size
+                    WadHeader.Add(0x01);    //Set 'IsCompressed' to 1 (we compress all files, so this is always true)
+                    WadHeader.AddRange(BitConverter.GetBytes(entries[i].CRC));  //Add the compressed-data crc (idk why they have this, because the extracted file has a crc anyway)
+                    WadHeader.AddRange(BitConverter.GetBytes(entries[i].Filename.Length+1));  //Add filename length
+                    WadHeader.AddRange(ASCIIEncoding.ASCII.GetBytes(entries[i].Filename));  //Add the filename
+                    WadHeader.Add(0x00);    //Add padding
+                }
+                
+                //Fix the offsets
+                for(int i = 0; i < entries.Length; i++)
+                {
+                    byte[] offsetbytes = BitConverter.GetBytes(WadHeader.Count() + entries[i].Offset);
+                    WadHeader[offoff[i]] = offsetbytes[0];
+                    WadHeader[offoff[i] + 1] = offsetbytes[1];
+                    WadHeader[offoff[i] + 2] = offsetbytes[2];
+                    WadHeader[offoff[i] + 3] = offsetbytes[3];
+                }
+
+                byte[] Output = WadHeader.Concat(WadBody).ToArray();
+                File.WriteAllBytes(wad, Output);  //Save 
+
+                Quit();
+            }
 
             if (mode != "-c")    //If the tool is not in create mode, check if the wad exists
             {
