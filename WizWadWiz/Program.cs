@@ -174,30 +174,34 @@ namespace WizWadWiz
 
             FileList[] entries = new FileList[0];   //Pre-init the 'entries' array
 
-            if(mode == "-c")
+            if(mode == "-c")    //Create (wad) mode
             {
+                
+                //Make sure the input directory exists
                 if (!Directory.Exists(arg1))
                 {
                     Console.WriteLine("Input directory not found!");
                     PrintHelp();
                 }
-                string[] InFiles = Directory.GetFiles(arg1, "*.*", SearchOption.AllDirectories);
-                entries = new FileList[InFiles.Count()];
-                Console.WriteLine("Filecount: {0}", InFiles.Count());
 
-                for(int i = 0; i < InFiles.Count(); i++)
+                string[] InFiles = Directory.GetFiles(arg1, "*.*", SearchOption.AllDirectories);    //Grab a list of all files within the directory
+                entries = new FileList[InFiles.Count()];    //Make a new FileList for storing these files in the wad
+                Console.WriteLine("Filecount: {0}", InFiles.Count());   //Debug
+
+                //For each file
+                Parallel.For(0, InFiles.Count(), i =>
                 {
-                    entries[i].Filename = InFiles[i].Substring(arg1.Length, InFiles[i].Length - arg1.Length);
-                    if(entries[i].Filename.IndexOf("\\") == 0)
-                        entries[i].Filename = entries[i].Filename.Substring(1, entries[i].Filename.Length - 1);
+                    entries[i].Filename = InFiles[i].Substring(arg1.Length, InFiles[i].Length - arg1.Length);   //Remove directory info that shouldn't be included in the wad (path up to the wad contents)
+                    if(entries[i].Filename.IndexOf("\\") == 0)  //If the entry starts with a \
+                        entries[i].Filename = entries[i].Filename.Substring(1, entries[i].Filename.Length - 1); //Get rid of the slash
 
-                    FileStream fs = File.OpenRead(InFiles[i]);
-                    MemoryStream ms = new MemoryStream((int)fs.Length);
-                    fs.CopyTo(ms);
-                    entries[i].Size = (uint)fs.Length;
-                    entries[i].Data = ms.ToArray();
-                    Console.WriteLine("{0}, with a size of {1}, was read to memory", entries[i].Filename, entries[i].Size);
-                }
+                    //MemoryStream ms = new MemoryStream(File.ReadAllBytes(InFiles[i]));  //Read
+                    entries[i].Data = File.ReadAllBytes(InFiles[i]);    //Read the file into memory
+                    entries[i].Size = (uint)entries[i].Data.Length;
+                    //Console.WriteLine("{0}, with a size of {1}, was read to memory", entries[i].Filename, entries[i].Size);
+                });
+
+                Console.WriteLine("Files read to memory");
 
                 List<byte> WadHeader = new List<byte>();
                 List<byte> WadBody = new List<byte>();
@@ -217,9 +221,9 @@ namespace WizWadWiz
                     WadBody.AddRange(compdata);   //Add the compressed data to the body of the wad
                     entries[i].CRC = (uint)crc.CalculateAsNumeric(entries[i].Data); //Add the CRC of the compressed data (idk why they do this)
                     entries[i].CompressedSize = (uint)compdata.Length;    //Save the size of the compressed data
-                    Console.WriteLine("CRC: {0} : {1}", entries[i].CRC.ToString("X8"), entries[i].Filename);    //Debug
+                    //Console.WriteLine("CRC: {0} : {1}", entries[i].CRC.ToString("X8"), entries[i].Filename);    //Debug
                 }
-                
+                Console.WriteLine("Wad body added");
                 //Add wad header info
                 WadHeader.AddRange(new byte[] { 0x4B, 0x49, 0x57, 0x41, 0x44, 0x02, 0x00, 0x00, 0x00}); //Add magic and wad version (2)
                 WadHeader.AddRange(BitConverter.GetBytes(entries.Length));  //Add the file count
@@ -240,7 +244,7 @@ namespace WizWadWiz
                     WadHeader.AddRange(ASCIIEncoding.ASCII.GetBytes(entries[i].Filename));  //Add the filename
                     WadHeader.Add(0x00);    //Add padding
                 }
-                
+                Console.WriteLine("Wad Header added");
                 //Fix the offsets
                 for(int i = 0; i < entries.Length; i++)
                 {
@@ -250,10 +254,10 @@ namespace WizWadWiz
                     WadHeader[offoff[i] + 2] = offsetbytes[2];
                     WadHeader[offoff[i] + 3] = offsetbytes[3];
                 }
-
+                Console.WriteLine("Offsets fixed");
                 byte[] Output = WadHeader.Concat(WadBody).ToArray();
                 File.WriteAllBytes(wad, Output);  //Save 
-
+                Console.WriteLine("Wad Saved");
                 Quit();
             }
 
@@ -548,7 +552,7 @@ namespace WizWadWiz
                         MainTimer.Stop();
                         Console.WriteLine("Extracted {0} files in {1} Ms", entries.Length, stopwatch.ElapsedMilliseconds);
                         Console.WriteLine("Wrote files in {0} Ms", writetimer.ElapsedMilliseconds);
-                        Console.WriteLine("Total program runtime: {0} Ms", MainTimer.ElapsedMilliseconds);
+                        Console.WriteLine("Total program runtime: {0} seconds", (Convert.ToSingle(MainTimer.ElapsedMilliseconds)/1000));
                         Quit(); //Exit
 
                     }
@@ -573,7 +577,7 @@ namespace WizWadWiz
             Console.WriteLine("-x (extract) [filename (* for all files)] [extraction directory]");
             //Console.WriteLine("-a (add: Add a file to the wad) [file to insert] [directory\\name inside wad]");
             //Console.WriteLine("-r (remove: Removes a file from the wad) [directory\\name of file to remove]");
-            //Console.WriteLine("-c (create: Creates a wad, based on files in the specified directory) [directory containing files to put in wad]\n");
+            Console.WriteLine("-c (create: Creates a wad) [directory containing files to put in wad]");
             Console.WriteLine("-d (diff: Compares two wads, and lists different files) [wad to compare] {Optional: extraction directory}");
             Console.WriteLine("-w2z (wad2zip: Converts a wad to a zip) [output zip]");
             //Console.WriteLine("-z2w (zip2wad: Converts a zip to a wad) [output wad]");

@@ -55,7 +55,14 @@ namespace WizWadWiz
                         entries[i].Data = reader.ReadBytes((int)entries[i].Size);
                 }
                 else
-                    System.Diagnostics.Debug.WriteLine("File '{0}' does not exist!", entries[i].Filename);
+                {
+                    Console.WriteLine("{0} Is a dummy file!", entries[i].Filename);
+                    entries[i].Data = new byte[]{0x00,0x00,0x00,0x00};
+                    entries[i].IsCompressed = false;
+                    entries[i].Size = 4;
+                    entries[i].CompressedSize = 4;
+                    entries[i].Filename = "DUMMY_" + entries[i].Filename;
+                }
                 reader.BaseStream.Seek(tempoffset, SeekOrigin.Begin);
             }
             

@@ -43,6 +43,9 @@
   <PropertyGroup>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>WizWadWizard5.ico</ApplicationIcon>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -78,6 +81,9 @@
   </Target>
   <ItemGroup>
     <PackageReference Include="ILMerge" Version="3.0.29" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="WizWadWizard5.ico" />
   </ItemGroup>
   <PropertyGroup>
     <PostBuildEvent>if $(ConfigurationName) == Release (
