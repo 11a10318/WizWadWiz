@@ -16,9 +16,7 @@ namespace WizWadWiz
         /// <returns></returns>
         public static FileList[] ReadWad(string wad)
         {
-            byte[] inwad = File.ReadAllBytes(wad);  //Read the specified wad into a byte array
-            MemoryStream instream = new MemoryStream(inwad);  //Read the file into a memorystream
-            BinaryReader reader = new BinaryReader(instream);  //Add a BinaryReader handle to the memorystream (allows for easier reading)
+            BinaryReader reader = new BinaryReader(new FileStream(wad,FileMode.Open));  //Add a BinaryReader handle to the memorystream (allows for easier reading)
 
             string header = new string(reader.ReadChars(5)); //Read the first 5 bytes, to see if the file is a KIWAD
             if (header != "KIWAD")   //If the header is not 'KIWAD'
@@ -34,6 +32,8 @@ namespace WizWadWiz
 
             if (version >= 2)   //If the wad is version 2 or later
                 reader.ReadByte();  //Read a byte that is only found in wad revision 2+
+
+            StringBuilder dummies = new StringBuilder(entries.Length);
 
             for (int i = 0; i < FileCount; i++)  //For every file entry in the wad, grab its offset, sizes, compression-status, crc, and name, and add that to an array
             {
@@ -56,7 +56,7 @@ namespace WizWadWiz
                 }
                 else
                 {
-                    Console.WriteLine("{0} Is a dummy file!", entries[i].Filename);
+                    dummies.AppendLine(entries[i].Filename + " Is a dummy file!");
                     entries[i].Data = new byte[]{0x00,0x00,0x00,0x00};
                     entries[i].IsCompressed = false;
                     entries[i].Size = 4;
@@ -65,7 +65,7 @@ namespace WizWadWiz
                 }
                 reader.BaseStream.Seek(tempoffset, SeekOrigin.Begin);
             }
-            
+            Console.WriteLine(dummies);
             return entries; //Return the FileList array for the input wad
 
         }

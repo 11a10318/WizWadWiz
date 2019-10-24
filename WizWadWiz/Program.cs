@@ -1,22 +1,8 @@
 ﻿//Wizard101 Wad Wizard V1.0
 //You know you love my program names :P
 //
-//
-//Scans supplied wad, grabs all filenames and offsets
-//Saves filename,size, compressed size, and offset
-//Provides following arguments:
-//
-//!DONE!//-i (info: dumps all info)
-//!DONE!//-x (extract) [filename (* for all files)] [Directory name to extract into]
-//-a (add: Add a file to the wad) [file to insert] [directory\name inside wad]
-//-r (remove: Removes a file from the wad) [directory\name of file to remove]
-//-c (create: Creates a wad, based on files in the specified directory) [directory of files to put in wad]
-//!DONE!//-d (diff: Compares two wads, and lists different files) [wad to compare] {Optional: directory to extract different files to}
-//Would be useful for dataminers when the game updates
-
-//A GUI extension can use -i to get the file info
-//With this, it can allow the user to explore the files and extract individual files as wanted
-//This is awesome, because it allows you to extract single files from a wad, without having to extract the entire wad first
+//This tool can be used to read/extract/modify/create KingsIsle .wad files
+//It has been tested and verified to work with both wizard101 and pirate101
 //
 //Potential issues:
 //
@@ -32,6 +18,7 @@
 //          I should ignore expected filesize when extracting, and if the file exceeds the buffer, show a warning.
 //              Give an option to ignore the error and proceed, or just cancel (increase buffer size)
 //          C# is pretty safe, so I shouldn't really have to worry about this (safeguards ftw)
+//      UPDATE: I don't need to use e pre-determined buffer size. It's dynamically created during the extraction, so this isn't a problem.
 //
 //  CRC-Collision:
 //      diff-checking can fail if the files differ, but the CRC doesn't
@@ -40,6 +27,7 @@
 //      The workaround for this would be to calculate the checksum myself, rather than relying on the included CRC
 //          This takes more time, and would still be vulnerable to crc-collisions
 //          To remedy this, I could use a stronger hash function, which could hurt performance even more (although, most suitable hash functions should be fast enough on a modern machine)
+//      UPDATE: Hashing is pretty quick. I could also just compare the two byte arrays in-memory, which wouldn't have this issue, and should be faster than hashing anyway.
 //
 //  ExclusionDirectories:
 //      If the extraction directory starts with '..', it means the user is extracting up a directory
@@ -48,16 +36,26 @@
 //      It could probably be fixed by performing checks to see if the directory contains '..', and if so, add the full path instead of the relative path (eg; including C:\)
 //          When the path includes a ':', it will use the full path instead of using a relative path
 //          Then when '..' is encountered, remove the parent directory entry (eg; replace C:\dir1\dir2\dir3\..\dir4, with C:\dir1\dir2\dir4)
+//      UPDATE: I'm pretty sure this is fixed now (I haven't done much testing. But from the few things I tried, it worked fine)
 //
 //I don't really know how to verify the checksums included in .wad files
 //It's not too important, because my program is pretty safe with extraction, so there shouldn't be any data corruption.
 //I'd like to get checksums figured out at some point though, just for that extra bit of safety
+//
+//UPDATE: I figured out the checksum. It's just for the compressed data, not the extracted data :/
+//It's a fairly simple CRC32, just with a couple of non-standard paramters:
+//Polynomial: 04c11db7    Initial value: 0    XOR: 0/none    Reflection: input and output
+//
+//I think the CRC is for verifying the integrity of files that aren't compressed (eg; audio files)
+//The compressed files use zlib streams, so there's already an adler32 of the expected output.
+//I'm not sure why they don't compress all files, and remove the crc completely. Just seems like a waste of resources when only a few files are left uncompressed.
 //
 //In the meantime, I can use the checksum for diff-checking!
 //That's pretty cool, because we'd be able to diff-check without extracting anything.
 //If it's all done in memory, it'll be very fast.
 //The other alternative would be to calculate the CRC of the compressed data, which would be slightly slower, but still much faster than diff-checking files on disk
 //
+
 using System;
 using System.Linq;
 using System.Text;
@@ -88,10 +86,11 @@ namespace WizWadWiz
         [STAThread]
         static void Main(string[] args)
         {
-            //args = new string[3];
-            //args[0] = "Root.wad";
-            //args[1] = "-c";
-            //args[2] = "plop";
+            //args = new string[4];
+            //args[0] = "Mob-WorldData.wad";
+            //args[1] = "-x";
+            //args[2] = "*";
+            //args[3] = "mobout";
             System.Diagnostics.Stopwatch MainTimer = new System.Diagnostics.Stopwatch();
             MainTimer.Start();
             string wad = "";    //wad filename
@@ -173,6 +172,14 @@ namespace WizWadWiz
             }
 
             FileList[] entries = new FileList[0];   //Pre-init the 'entries' array
+
+            if(mode == "-a")    //If using file-add mode
+            {
+                Console.WriteLine("Not yet implemented");
+                Quit();
+                //Should I add an argument to indicate whether to add a file, or read a filelist?
+                //Or should I take the entire list as a single string?               
+            }
 
             if(mode == "-c")    //Create (wad) mode
             {
@@ -281,7 +288,7 @@ namespace WizWadWiz
                 PrintHelp();
             }
 
-            if(mode == "-w2z")
+            if(mode == "-w2z")  //If using Wad2Zip mode
             {
                 //Stopwatch for diagnostics
                 System.Diagnostics.Stopwatch stopwatch = new System.Diagnostics.Stopwatch();
@@ -318,9 +325,9 @@ namespace WizWadWiz
 
                 MainTimer.Stop();
 
-                Console.WriteLine("Updated CRC's in {0} Ms", stopwatch.ElapsedMilliseconds);
-                Console.WriteLine("Zipped in {0} Ms", ziptimer.ElapsedMilliseconds);
-                Console.WriteLine("Total program runtime: {0} Ms", MainTimer.ElapsedMilliseconds);
+                Console.WriteLine("Updated CRC's in {0} Seconds", stopwatch.Elapsed.TotalSeconds);
+                Console.WriteLine("Zipped in {0} Seconds", ziptimer.Elapsed.TotalSeconds);
+                Console.WriteLine("Total program runtime: {0} Seconds", MainTimer.Elapsed.TotalSeconds);
                 Quit(); //Exit
             }
 
@@ -337,7 +344,7 @@ namespace WizWadWiz
                     }
                     Console.WriteLine(sb);  //Print the output string
                     MainTimer.Stop();
-                    Console.WriteLine("{0} files found in {1} milliseconds", entries.Length, MainTimer.ElapsedMilliseconds);
+                    Console.WriteLine("{0} files found in {1} Seconds", entries.Length, MainTimer.Elapsed.TotalSeconds);
                     Quit();    //Quit
                 }
                 else if (mode == "-d")  //If using diff mode
@@ -485,7 +492,7 @@ namespace WizWadWiz
                         Console.WriteLine("No differences found!");
 
                     MainTimer.Stop();
-                    Console.WriteLine("Total program runtime: {0} Ms", MainTimer.ElapsedMilliseconds);
+                    Console.WriteLine("Total program runtime: {0} Seconds", MainTimer.Elapsed.TotalSeconds);
                     Quit();
                 }
                 else if (mode == "-x")   //If using extract mode
@@ -550,19 +557,13 @@ namespace WizWadWiz
 
                         writetimer.Stop();
                         MainTimer.Stop();
-                        Console.WriteLine("Extracted {0} files in {1} Ms", entries.Length, stopwatch.ElapsedMilliseconds);
+                        Console.WriteLine("Extracted {0} files in {1} Seconds", entries.Length, stopwatch.Elapsed.TotalSeconds);
                         Console.WriteLine("Wrote files in {0} Ms", writetimer.ElapsedMilliseconds);
-                        Console.WriteLine("Total program runtime: {0} seconds", (Convert.ToSingle(MainTimer.ElapsedMilliseconds)/1000));
+                        Console.WriteLine("Total program runtime: {0} seconds", MainTimer.Elapsed.TotalSeconds);
                         Quit(); //Exit
-
                     }
-
                 }
-
             }
-
-
-            //Console.ReadLine();
         }
 
         //Hmmm... I wonder what this does
@@ -640,6 +641,7 @@ namespace WizWadWiz
             }
         }
 
+        //Resolve directories properly (also helps ensure that the defender exclusion is applied to the correct folder)
         public static string ResolveDir(string arg2)
         {
             if (!arg2.Contains(':'))    //If the supplied directory does not contain a ':'
@@ -656,37 +658,6 @@ namespace WizWadWiz
                 CreateExclusion();   //Create a windows defender exclusion for the extraction directory
 
             return arg2;
-
-            
-
-           /*
-           if (!Directory.Exists(arg2))    //If the output directory doesn't exist
-               Directory.CreateDirectory(arg2);    //Create the output directory
-
-           Console.WriteLine("Directory to parse:\n{0}", arg2);
-
-           while(arg2.Contains(".."))
-           {
-               int up = arg2.IndexOf("..");
-               int updir = -1;
-               try
-               {
-                   updir = arg2.Substring(0,up).LastIndexOf('\\');
-               }
-               catch
-               {
-                   updir = arg2.Substring(0, up).LastIndexOf('/');
-               }
-               arg2 = arg2.Substring(0, updir) + arg2.Substring(updir+3,arg2.Length - updir);
-               Console.WriteLine("Current Parse:{0}", arg2);
-           }
-
-           ExclusionDir = arg2;    //Set the directory used for the WindowsDefender exlusion to the extraction directory
-
-           if (IsElevated())    //If the user is running this process with admin privs
-               CreateExclusion();   //Create a windows defender exclusion for the extraction directory
-               
-            return arg2;*/
         }
 
     }

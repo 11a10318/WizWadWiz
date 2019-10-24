@@ -138,12 +138,15 @@ namespace WizWadWiz
                 EntireZip.AddRange(ASCIIEncoding.ASCII.GetBytes(entries[i].Filename));
                 EntireZip.AddRange(entries[i].Data);    //Copy the file to the zip stream
 
+                
                 //I called it a footer, but it's officially called the 'Central File Directory' Sorry for any confusion
                 ZipFooter.AddRange(new byte[] { 0x50, 0x4B, 0x01, 0x02, 0x14, 0x00, 0x14, 0x00, 0x00, 0x00 });  //Add Central File Directory Header magic, Viewer/Creator v20, flags 00 00
+                
                 if (entries[i].IsCompressed)
                     ZipFooter.AddRange(new byte[] { 0x08, 0x00 });  //Mark file as a deflate stream (that's how they're compressed in wads)
                 else    //If the file isn't compressed
                     ZipFooter.AddRange(new byte[] { 0x00, 0x00 });  //Mark the file as non-compressed
+
                 ZipFooter.AddRange(timebytes);  //Add the modified date/time
                 ZipFooter.AddRange(BitConverter.GetBytes(entries[i].CRC));  //Add the CRC
 
@@ -180,7 +183,7 @@ namespace WizWadWiz
 
             //End of central directory
             EntireZip.AddRange(new byte[] { 0x50, 0x4B, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00 });  //Footer_footer, number of disks, disk the footer is located on (all 0 because we ain't splittin nothin')
-            if (entries.Length >= 65535)    //If the max files is beyond the max file-count storable in the zip footer (65535 is ffff), set the filecount to ffff (even windows does this, so the filecount is probable just a legacy field)
+            if (entries.Length >= 65535)    //If the max files is beyond the max file-count storable in the zip footer (65535 is ffff), set the filecount to ffff (even windows does this, so the filecount is probably just a legacy field)
                 EntireZip.AddRange(new byte[] { 0xff, 0xff, 0xff, 0xff });
             else
             {
