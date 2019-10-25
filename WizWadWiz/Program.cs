@@ -1,4 +1,4 @@
-﻿//Wizard101 Wad Wizard V1.0
+﻿//Wizard101 Wad Wizard
 //You know you love my program names :P
 //
 //This tool can be used to read/extract/modify/create KingsIsle .wad files
@@ -22,12 +22,13 @@
 //
 //  CRC-Collision:
 //      diff-checking can fail if the files differ, but the CRC doesn't
+//      CRC collisions are very common. I wouldn't be surprised if there's already some KI files with unique data and matching checksums.
 //      This also happens if the crc data in the wad is spoofed
 //      If KI randomly decided to set all CRC data to 00000000, then diff-checking would fail
 //      The workaround for this would be to calculate the checksum myself, rather than relying on the included CRC
 //          This takes more time, and would still be vulnerable to crc-collisions
 //          To remedy this, I could use a stronger hash function, which could hurt performance even more (although, most suitable hash functions should be fast enough on a modern machine)
-//      UPDATE: Hashing is pretty quick. I could also just compare the two byte arrays in-memory, which wouldn't have this issue, and should be faster than hashing anyway.
+//      UPDATE: Hashing is pretty quick. I could also just compare the two byte arrays in-memory, which wouldn't have the collision issue. But it could be slower.
 //
 //  ExclusionDirectories:
 //      If the extraction directory starts with '..', it means the user is extracting up a directory
@@ -43,19 +44,28 @@
 //I'd like to get checksums figured out at some point though, just for that extra bit of safety
 //
 //UPDATE: I figured out the checksum. It's just for the compressed data, not the extracted data :/
-//It's a fairly simple CRC32, just with a couple of non-standard paramters:
+//It's a fairly simple CRC32, here are the parameters:
 //Polynomial: 04c11db7    Initial value: 0    XOR: 0/none    Reflection: input and output
 //
 //I think the CRC is for verifying the integrity of files that aren't compressed (eg; audio files)
 //The compressed files use zlib streams, so there's already an adler32 of the expected output.
 //I'm not sure why they don't compress all files, and remove the crc completely. Just seems like a waste of resources when only a few files are left uncompressed.
 //
-//In the meantime, I can use the checksum for diff-checking!
-//That's pretty cool, because we'd be able to diff-check without extracting anything.
-//If it's all done in memory, it'll be very fast.
-//The other alternative would be to calculate the CRC of the compressed data, which would be slightly slower, but still much faster than diff-checking files on disk
 //
-
+//TODO:
+//
+//Support adding files
+//Support removing files
+//Support updating/replacing files
+//
+//Make it more user friendly (eg; allow unordered arguments, offer more specific help/errors per argument)
+//Look into reducing ram usage (read/write files in chunks?)
+//Look into reducing cpu usage (make sure all operations are necessary)
+//Investigate further speed optimisations
+//Improve diff-checking (avoid crc collisions)
+//Perform stability testing (try to make wads specifically intended to cause issues, do some fuzzing, etc..)
+//
+//
 using System;
 using System.Linq;
 using System.Text;
@@ -201,6 +211,8 @@ namespace WizWadWiz
                     entries[i].Filename = InFiles[i].Substring(arg1.Length, InFiles[i].Length - arg1.Length);   //Remove directory info that shouldn't be included in the wad (path up to the wad contents)
                     if(entries[i].Filename.IndexOf("\\") == 0)  //If the entry starts with a \
                         entries[i].Filename = entries[i].Filename.Substring(1, entries[i].Filename.Length - 1); //Get rid of the slash
+
+                    entries[i].Filename = entries[i].Filename.Replace('\\', '/');
 
                     //MemoryStream ms = new MemoryStream(File.ReadAllBytes(InFiles[i]));  //Read
                     entries[i].Data = File.ReadAllBytes(InFiles[i]);    //Read the file into memory
