@@ -61,7 +61,6 @@ namespace WizWadWiz
                     entries[i].IsCompressed = false;
                     entries[i].Size = 4;
                     entries[i].CompressedSize = 4;
-                    entries[i].Filename = "DUMMY_" + entries[i].Filename;
                 }
                 reader.BaseStream.Seek(tempoffset, SeekOrigin.Begin);
             }

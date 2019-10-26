@@ -64,6 +64,7 @@
 //Investigate further speed optimisations
 //Improve diff-checking (avoid crc collisions)
 //Perform stability testing (try to make wads specifically intended to cause issues, do some fuzzing, etc..)
+//Clean this shit (so many parts that can be optimised, removed, moved into more relevant sections, etc...)
 //
 //
 using System;
@@ -139,12 +140,12 @@ namespace WizWadWiz
             {
                 try
                 {
-                    if (mode == "-x" || mode == "-a")   //If extract/add mode, grab two arguments
+                    if (mode == "-x")   //If extract mode, grab two arguments
                     {
                         arg1 = args[2];
                         arg2 = args[3];
                     }
-                    else if (mode == "-r" || mode == "-c" || mode == "-d")  //Remove/Create/Diff mode, one arg
+                    else if (mode == "-r" || mode == "-c" || mode == "-d" || mode == "-a")  //Remove/Create/Diff/Add mode, one arg
                         arg1 = args[2];
                     else if (mode != "-i" && mode != "-w2z")    //If the mode is not -i (takes no arguments), then we don't know what mode they specified
                     {
@@ -185,10 +186,35 @@ namespace WizWadWiz
 
             if(mode == "-a")    //If using file-add mode
             {
-                Console.WriteLine("Not yet implemented");
+                try
+                {
+                    arg2 = args[3];
+                }
+                catch
+                {
+                    Console.WriteLine("No output wad specified. Overwriting original");
+                    arg2 = wad;
+                }
+
+                string[] InFiles = arg1.Split(':');
+                for(int i = 0; i < InFiles.Length; i++)
+                {
+                    if(!File.Exists(InFiles[i]))
+                    {
+                        if (!Directory.Exists(InFiles[i]))
+                        {
+                            Console.WriteLine("{0} could not be found!\nCancelling operation...", InFiles[i]);
+                            Quit();
+                        }
+                        else
+                            Console.WriteLine("{0} is a directory! Processing sub-entries...", InFiles[i]);
+                    }
+                    else
+                        Console.WriteLine("{0} added",InFiles[i]);
+                }
                 Quit();
-                //Should I add an argument to indicate whether to add a file, or read a filelist?
-                //Or should I take the entire list as a single string?               
+
+                
             }
 
             if(mode == "-c")    //Create (wad) mode
